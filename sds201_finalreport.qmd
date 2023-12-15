@@ -1,0 +1,292 @@
+---
+title: "Hardback and Paperback books and List Price on Amazon"
+author: "Xinxin Zhang, Yasmin Mohamed"
+bibliography: references.bib
+format:
+  html:
+    embed-resources: true
+    df-print: paged
+    tbl-cap-location: bottom
+execute: 
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: libraries
+library(tidyverse)
+library(moderndive)
+library(infer)
+library(dplyr)
+library(ggplot2)
+library(janitor)
+library(knitr)
+library(gridExtra)
+```
+
+# Introduction
+Most readers will have a preference for their books: hardback or paperback. Hardback books can be sturdier, fancier, and possibly last longer [@Birch2023-ze]. Paperback books are more accessible to transport. While either choice boils down to personal preference, there is a noticeable difference in how both books are priced on the market. Amazon is a major book retailer with a wide selection and fast shipping times. If you are a huge fan of reading books, you might find it more appealing to buy books from Amazon at a lower price than local bookstores– the sale price on Amazon.com can be cheaper than the sale price suggested by the publisher [@Blum2021-tb]. Our interest in this dataset[@noauthor_undated-nv] is to find the most cost effective way of purchasing books on the website. 
+
+Our research project will investigate the relationship between list pricing and hardback and paperback books by analyzing data sales of 325 books sourced from Amazon.com. The data analyzed included the list price as the outcome variable and hardback or paperback materials as the explanatory variable. Other variables in this dataset included dimensions of the books, titles, ISBN, authors, year published, and book-length. We have developed the question: Do hardback or paperback books affect the suggested list price from the publisher? To explore this question, aside from general data wrangling, summary, and hypothesis testing assumption checks, we also used several statistical methods, such as categorical regression model, and hypothesis testing such as permutation test and t-test. 
+
+# Exploratory data analysis
+
+```{r}
+#| label: load_data and wrangling 
+#| results: hide
+amazon_book <- 
+  read_csv("https://wjhopper.github.io/SDS-201/data/amazon_books.csv") |> 
+  rename(list_price = "List Price", hard_paper = "Hard/ Paper", weight = `Weight (oz)`)|> 
+  filter(!is.na(list_price), !is.na(hard_paper))
+
+#convert character value to numeric.
+amazon_book$list_price <- as.numeric(amazon_book$list_price)
+amazon_book$weight <- as.numeric(amazon_book$weight)
+```
+
+In our project, we have chosen the materials of books as the categorical variable and the list price as the numerical variable to investigate our hypothesis: we hypothesize that the average list price for hardback books is more expensive than the paperback books. The units of measurement are US dollars for the list price. The average and standard deviation of list price for both books, and hardback and paperback books individually across those 325 books are summarized below in @tbl-summary-stats. The counts of each book and both books are also shown. 
+
+```{r}
+#| label: tbl-summary-stats
+#| tbl-cap: "Summaries of mean, standard deviation, and counts of list price for hardback and paperback books."
+amazon_book <- amazon_book |> mutate(Materials= case_when(hard_paper == "P" ~ "Paperback", hard_paper == "H" ~ "Hardback"))
+
+my_sum <- amazon_book |> group_by(Materials) |> 
+  summarize(Average = mean(list_price),
+            Standard_Deviation = sd(list_price),
+            Count = n()
+            ) 
+
+both_sum <- amazon_book |> 
+  mutate(Materials = Materials) |>
+  summarize(Average = mean(list_price),
+            Standard_Deviation = sd(list_price),
+            Count = n())
+  
+summary_table <- bind_rows(
+  data.frame(both_sum),
+  data.frame(my_sum)
+  )
+
+# Print the table
+summary_table |> 
+  knitr::kable(digits = 2)
+```
+
+We can see that the sample size of books varies considerably. The number of hardback books in our data set is 89, whereas the paperback books are 236, which indicates a larger sample size of paperback books than that of hardback books. The average list price of hardback books(22.39 USD) seems to be more expensive than that of paperback books (17.14 USD). In addition, since the standard deviation of paperback is larger than that of hardback books, it indicates that the list price of paperback books has greater variability and dispersion than that of hardback books. 
+
+```{r}
+#| label: fig-gen-distributions
+#| fig-cap: "Hardback or paperback books and list price"
+#| fig-subcap:
+#|   - "Distribution of list price across all books, broken down by materials."
+#|   - "Distribution of list price across all books."
+#| layout-ncol: 2
+#| fig-width: 4.5
+#| fig-height: 4.5
+
+amazon_book |> 
+  ggplot(aes(x = hard_paper, y = list_price)) +
+  geom_boxplot() +
+  theme_gray(base_size = 14) +
+  labs(x = "Hardback and Paperback",
+       y = "List Price") + 
+  theme_minimal()
+
+amazon_book |>
+  ggplot(aes(x = list_price)) +
+  geom_histogram(binwidth = 10) +
+  labs(x = "List Price",
+       y = "Count") +
+  theme_minimal()
+
+```
+
+The left panel in the above @fig-gen-distributions shows both materials and list price within the sample of 324 books in our dataset. The majority of list price is centered at 18.6 USD, with the vast majority of books having the list price ranging between 10 USD and 40 USD. A longer right tail of hardback books suggests that the list price is higher, with fewer books in this range. In right panel in @fig-gen-distributions, we can see that the paperback books have a greater range of list price than hardback books, with an overall higher median list price. However, due to there being more outliers in paperback books, it suggests that paperback books have greater variability. 
+
+# Results
+To quantify the relationship between list price of paperback books and that of hardback books, we fit a categorical regression model. In this model, the outcome variable was the list price, and the explanatory variable was hardback or paperback books. The predictions of this model are visualized in @fig-categorical-regression-model, and the model’s coefficients are described in @tbl-regression_table:
+
+```{r}
+#| label: tbl-regression_table
+#| tbl-cap: "Regression table describing the coefficients of the categorical regression model predicting list price for hardback and paperback books."
+regression_model <- lm(list_price ~ hard_paper, data = amazon_book)
+get_regression_table(regression_model, print = TRUE)
+```
+
+```{r}
+#| label: fig-categorical-regression-model
+#| fig-cap: "List price plotted against the hardback and paperback books, with the fitted regression line."
+ggplot(amazon_book,
+       aes(x=hard_paper, y=list_price)
+       ) +
+  geom_jitter(alpha = 0.6, size = 2) +
+  geom_categorical_model(se=FALSE) +
+  labs(title = "Categorical Regression Model for list price of Hardback and Paperback books", 
+       x = "Hardback or Paperback",
+       y = "List Price") +
+  theme_minimal()
+```
+
+The fitted regression equation predicting list price from the hardback and paperback books are calculated below: 
+
+$$
+\begin{aligned}
+E(ListPrice|Materials) = {\beta}_{0} -{\beta}_{1} \cdot{\mathbb{1}_\text{P}(Materials)}\\
+E(ListPrice|Materials=\text{``Hard"}) = 22.4 -5.26 \cdot 1_\text{P}(``Hard")\\
+E(ListPrice|Materials=\text{``Hard"}) = 22.4 -5.26 \cdot 0 = 22.4\\
+E(ListPrice|Materials=\text{``Paper"}) = 22.4 -5.26 \cdot 1_\text{P}(``Paper")\\
+E(ListPrice|Materials=\text{``Paper"}) = 22.4 -5.26 \cdot 1 = 17.14\\
+\end{aligned}
+$$
+The intercept (${\beta}_{0}$ = 22.4) represents the predicted list price for hardback books when the list price for paperback is zero books. The coefficient (${\beta}_{1}$= 5.26) represents the difference between predicted list price of hardback and paperback. The indicator function ${\mathbb{1}_\text{P}(Materials)}$ ensures that the ${\beta}_{1}$ coefficient only applies when the hard_paper variable takes on the value “P”. Based on this estimate, the expected list price for hardback books is 22.4 USD, and the expected list price for paperback books is 17.14 USD. To test our hypothesis, we mainly used the permutation test to see if there is a difference in means. It suggests that there is strong evidence to conclude that there is a true difference between the hardback price and the paperback price outside of this sample (*t*= 5.3, *p* = 0.004). To supplement the permutation test, we also used a t-test hypothesis test to demonstrate that there is a true difference between them(*t*= 3.24, *p* = 0.00143). 
+
+@tbl-stats-hypotests summarizes the statistic of test statistic, p-value, alpha-level, and degree of freedom used for generating permutation test and t-test. 
+```{r}
+#| label: tbl-stats-hypotests
+#| tbl-cap: "Statistical summary of test statistic, p-value, alpha-level, and degrees of freedom for permutation test and t-test. "
+set.seed(123)
+
+infer_bootstrap_dist <- amazon_book |>
+ specify(response=list_price) |>
+ generate(reps=1000, type="bootstrap") |>
+ calculate(stat = "mean")
+
+conf_interval <- summarise(infer_bootstrap_dist,
+         lower = quantile(stat, 0.025),
+         upper = quantile(stat, 0.975)
+         )
+
+table_data <- data.frame(
+  statistic = c("Permutation: Test Statistic",
+                "Permutation: P-Value",
+                "T-test: Test Statistic",
+                "T-test: P-Value",
+                "T: Degree of Freedom",
+                "Both: Alpha-Value",
+                "Confidence Internval: Lower",
+                "Confidence Interval: Upper"),
+  
+  value = c(round(5.3, 3),
+            round(0.004, 3),
+            round(3.24, 3),
+            round(0.00143, 3),
+            186,
+            0.05,
+            round(conf_interval$lower, 3),
+            round(conf_interval$upper, 3)
+            ))
+
+# Print the table
+kable(table_data, format = "markdown")
+```
+
+
+# Discussion
+## Conclusion
+We found that there is a true difference between the average list price of hardback books and that of paperback books. Furthermore, the average list price of hardback books tends to be higher than the average list price of paperback books. In our data report, we sought to answer our question: Do hardback or paperback books affect the suggested list price from the publisher? If the reader's goal is to have a wide range of collected books at a cheaper price, they are better off buying paperback books for cost affordability. In this report, our overall learning of pricing of hardback and paperback books on the Amazon market suggests that list pricing varies depending on the book's materials (hard/paperback). Our interest in finding a cost effective method of purchasing on Amazon.com led us to learn that buying paperback books is cheaper than hardback books according to the list price suggested by the publisher. 
+
+## Limitation
+The results could suggest that there could be variables that influence the list price of hardback and paperback books. Our report is limited because we only analyzed the relationship between list price and hard/paperback books. Although we did not have any data on the cost breakdown of paperback and hardback books, we could assume that time, materials, and labor impact the list price of books sold on Amazon.com. Publishers' popularity can possibly influence the list price they assign their books. In addition, the difference between cult favorites and classic books versus newer and less popular books can influence the list pricing. Would cult favorite books be pricier or cheaper than niche books? How does demand for certain novels impact the list price on the Amazon website? 
+
+## Further Questions
+```{r}
+#| label: fig-plusweight
+#| fig-cap: "Weight plotted against list price, grouped by whether the books is hardback or paperback. The superimposed lines represent the predictions of a multiple regression model that allows for an interaction between weight and materials."
+amazon_book |> 
+  ggplot(aes(x = weight, y = list_price, color = hard_paper)) +
+  geom_point(alpha = 0.7) +
+  geom_smooth(method = lm, se = FALSE, formala = y~x)+
+  labs(x = "Weight", y = "List Price", color = "Materials") +
+  theme_minimal()
+```
+
+Further analysis of our data considered other variables and their possible impact on list pricing on hardback and paperback books. In the figure above, we created an exploratory analysis to observe if there is a relationship between the weight of the books and list price, with materials as the third variable. Our intention in creating this graph is to see to what extent the weight of books of different materials would have an effect on the list price of hardback and paperback books. 
+
+In @fig-plusweight, we used a scatter plot between weight and list price, grouped by materials, fitted with multiple regression lines. Blue plot points represent paperback books, and red plot points represent hardback books. Both respective regression lines are colored in blue or red. We can observe that many of the blue plot points of paperback books tend to congregate in the lower left area of the graph, with a relatively centered low weight and low list price. Meanwhile, the red plot points of hardback books are more evenly distributed horizontally, meaning a greater variability of weight. We can see many outliers of paperback books having extremely high list prices with varying weights. However, despite their weight, most hardback books fall under a certain list price. The relationship between list price and weight appears to be slightly steeper for paperback books than hardback books, but it is difficult to say whether this difference in magnitude is large enough to be a significant difference between the two types of books. 
+
+##### References
+
+::: {#refs}
+:::
+
+# Appendix
+```{r}
+#| label: fig-residual-plot
+#| fig-cap: "List price and residuals"
+#| fig-subcap:
+#|   - "Residual distribution of list price across all books, broken down by materials."
+#|   - "Residual Distribution of list price across all books."
+#| layout-ncol: 2
+#| fig-width: 4.5
+#| fig-height: 4.5
+
+# Equal Variance check
+model_preds <- get_regression_points(regression_model)
+
+ggplot(model_preds, aes(x=list_price_hat, y=residual)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color="blue") +
+  labs(title = "Fitted list price and residual graph",
+       x = "Fitted List Price",
+       y = "Residual")
+
+#Normality
+ggplot(model_preds, aes(x=residual)) +
+  geom_histogram(bins = 20) + labs(title = "Histogram of residual visualization")
+```
+
+```{r}
+#| label: fig-normality-check
+#| fig-cap: "Distribution of average list price and hard/paperback books"
+
+set.seed(112)
+
+H_bootstrap <- amazon_book |>
+  filter(hard_paper == "H") |>
+  specify(response = list_price) |>
+  generate(reps=1000, type="bootstrap") |>
+  calculate(stat = "mean") 
+
+P_bootstrap <- amazon_book |>
+  filter(hard_paper == "P") |>
+  specify(response = list_price) |>
+  generate(reps=1000, type="bootstrap") |>
+  calculate(stat = "mean") 
+
+library(gridExtra)
+
+grid.arrange(visualise(H_bootstrap),
+             visualise(P_bootstrap),
+             ncol = 2
+             ) 
+```
+Left panel in @fig-residual-plot shows an indication that the equal variance assumption is violated due to the noticeable difference in the paperback and hardback point distribution range. Even though based on @fig-normality-check, it seems like each material is normally distributed. However, the histogram of the residual errors of both materials shown in right panel in @fig-residual-plot suggests that the assumption of normally distributed residuals is violated. Furthermore, there is no reason to suspect any dependence between the residual errors since there is nothing linking together the list price of paperback books to hardback books. Thus, we are confident in drawing inferences about whether there is a difference between the list price of hardback and that of paperback books based on the permutation method as a reasonable and reliable approach to the hypothesis test. 
+
+
+```{r}
+#| fig-cap: "Null Distribution of list price and materials if null hypothesis is true in permutation test."
+#| results: false
+
+set.seed(111)
+
+permutation_dist <- amazon_book |>
+  specify(formula = list_price ~ hard_paper) |>
+  hypothesise(null = "independence") |>
+  generate(reps = 1000, type = "permute") |>
+  calculate(stat = "diff in means", order = c("H", "P"))
+
+permutation_dist |>
+  get_p_value(obs_stat = 5.3, direction = "both")
+
+p <- visualise(permutation_dist) +
+  shade_p_value(obs_stat = quantile(permutation_dist$stat, .975),
+                direction = "both",
+                color = "blue", fill = "blue"
+                ) + 
+  labs(caption = "Permutation distribution if null hypothesis is true") + theme_minimal()
+p
+```
+
+
