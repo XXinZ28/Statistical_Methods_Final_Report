@@ -1,0 +1,1 @@
+This is project is the written report for my statistical methods course in the fall 2023. I used many statistical models to analyze the relationship between list price and books of different materials by applying statistical models such as hypothesis tests, regression models, and confidence intervals in R.
